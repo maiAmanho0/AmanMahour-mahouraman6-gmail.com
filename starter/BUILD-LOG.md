@@ -11,28 +11,21 @@ gives nothing away.
 
 ---
 
-<!-- EXAMPLE — delete this block, keep the shape.
+## 2026-09-26 · Phase 0 — orientation
 
-## 2026-03-04 · Phase 0 — orientation
+Set up the environment with Node.js v22.20.0 and npm 10.9.3, installing 106 packages with 0 vulnerabilities.
+Running `npm run db:reset` failed on Windows because the script relied on Unix `rm -f`; removed `app.db*` files via PowerShell.
+`npm run db:load` subsequently threw ENOENT (`C:\C:\...`) because `scripts/load-db.js` used `.pathname` on a file URL.
+Fixed `here` to pass the `URL` object directly to `readFileSync`, allowing `npm run db:load` to succeed.
+Observed seeded counts: 3 orgs, 8 users, 10 memberships, 9 devices, 6 grants, 3 sessions, 7 audit events, 20 permissions, 27 patterns.
+Discovered dynamic personalisation: added extra org "Ironside Labs", extra role "reviewer", and extra permission "device:reboot" (allowed on `dev_p_bb3398_a`, denied on `dev_p_bb3398_b`), reinforcing that roles and permissions must be dynamically resolved from the database.
 
-Expected the unknown-permission test to fail on my validation code.
-Observed: it passed, with foreign_keys ON, and *also* passed with the pragma removed — so the
-check was never running, and the "pass" was the schema loading fine while enforcing nothing.
-Changed: moved `foreign_keys = ON` to connection open and re-ran; now it raises
-`FOREIGN KEY constraint failed` as the README said it would.
-Note: this is the failure mode where a passing test is worse than a failing one.
+## 2026-09-26 · Phase 1 — token verification
 
--->
-
-## Phase 0 — orientation
-
-_Installed, reset the database, read the documents, ran the suites against the untouched skeleton.
-What did the starting line actually look like, and which failure surprised you?_
-
-## Phase 1 — token verification
-
-_What did you expect each failure mode to look like before you ran it? Which one behaved
-differently from your expectation, and what did that tell you?_
+`verifyAccessToken` in `server/auth.js` started as an unimplemented stub throwing `NOT_IMPLEMENTED`.
+Implemented strict JWT verification using existing helpers: requiring 3 dot-separated segments, valid base64url JSON header and payload, strict `alg: 'HS256'` and `typ: 'JWT'` checks, constant-time HMAC-SHA256 signature verification via `timingSafeEqual`, half-open expiry validation (`exp > nowSec()`), `iss`/`aud` matching constants, and non-empty `jti`.
+Ensured all malformed tokens, algorithm substitutions, signature mismatches, and expired tokens throw `unauthenticated(...)` returning 401 UNAUTHENTICATED.
+Ran `node scripts/check-jwt.js`: all 43 test cases passed cleanly (43 passed, 0 failed).
 
 ## Phase 2 — caller context and the resolution engine
 

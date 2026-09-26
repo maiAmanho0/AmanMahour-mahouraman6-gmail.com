@@ -7,7 +7,7 @@ import { hashPassword } from '../server/auth.js';
 import { readNonce, buildOverlay, applyOverlay, describeOverlay } from './personalise.js';
 
 const DB_FILE = process.env.DATABASE_FILE ?? 'app.db';
-const here = (p) => new URL(p, import.meta.url).pathname;
+const here = (p) => new URL(p, import.meta.url);
 
 for (const suffix of ['', '-wal', '-shm']) {
   if (existsSync(DB_FILE + suffix)) rmSync(DB_FILE + suffix);
@@ -60,7 +60,7 @@ const load = db.transaction(() => {
       `INSERT INTO grants (id,org_id,user_id,device_id,effect,starts_at,expires_at,created_by)
        VALUES (?,?,?,?,?,?,?,?)`
     ).run(g.id, g.orgId, g.userId, g.deviceId ?? null, g.effect,
-          resolveTime(g.startsAt), resolveTime(g.expiresAt), g.createdBy);
+      resolveTime(g.startsAt), resolveTime(g.expiresAt), g.createdBy);
 
     for (const p of g.permissions) {
       db.prepare('INSERT INTO grant_permissions (grant_id,permission) VALUES (?,?)').run(g.id, p);
@@ -72,7 +72,7 @@ const load = db.transaction(() => {
       `INSERT INTO sessions (id,org_id,user_id,device_id,mode,state,end_reason,authorized_by,started_at,expires_at,ended_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?)`
     ).run(s.id, s.orgId, s.userId, s.deviceId, s.mode, s.state, s.endReason ?? null,
-          JSON.stringify(s.authorizedBy), resolveTime(s.startedAt), resolveTime(s.expiresAt), resolveTime(s.endedAt));
+      JSON.stringify(s.authorizedBy), resolveTime(s.startedAt), resolveTime(s.expiresAt), resolveTime(s.endedAt));
   }
 
   for (const e of seed.auditEvents) {
@@ -80,7 +80,7 @@ const load = db.transaction(() => {
       `INSERT INTO audit_events (id,org_id,actor_id,action,target_type,target_id,result,reason_code,at)
        VALUES (?,?,?,?,?,?,?,?,?)`
     ).run(e.id, e.orgId, e.actorId, e.action, e.targetType ?? null, e.targetId ?? null,
-          e.result, e.reasonCode ?? null, resolveTime(e.at));
+      e.result, e.reasonCode ?? null, resolveTime(e.at));
   }
 });
 load();

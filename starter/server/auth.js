@@ -71,12 +71,69 @@ export function issueAccessToken({ userId, orgId, role, permVersion }, secret) {
 // `node scripts/check-jwt.js` is the public test suite for this function.
 // ---------------------------------------------------------------------------
 export function verifyAccessToken(token, secret) {
-  // YOURS TO WRITE. Every failure mode listed above must be a 401 UNAUTHENTICATED.
-  // `node scripts/check-jwt.js` is the public suite for this function.
-  throw Object.assign(
-    new Error('TODO: server/auth.js — verifyAccessToken() is yours to write (AUTH-DATA-MODEL.md §10).'),
-    { code: 'NOT_IMPLEMENTED' }
-  );
+  if (typeof token !== 'string') {
+    throw unauthenticated('token must be a string');
+  }
+
+  const parts = token.split('.');
+  if (parts.length !== 3) {
+    throw unauthenticated('malformed token: must have 3 segments');
+  }
+
+  const [h, p, s] = parts;
+  if (!h || !p || !s) {
+    throw unauthenticated('malformed token: segments must not be empty');
+  }
+
+  let header, payload;
+  try {
+    header = JSON.parse(unb64(h).toString('utf8'));
+    payload = JSON.parse(unb64(p).toString('utf8'));
+  } catch {
+    throw unauthenticated('invalid base64url or JSON in token');
+  }
+
+  if (typeof header !== 'object' || header === null || Array.isArray(header)) {
+    throw unauthenticated('header must be a JSON object');
+  }
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+    throw unauthenticated('payload must be a JSON object');
+  }
+
+  if (header.alg !== ALG || header.typ !== 'JWT') {
+    throw unauthenticated('unsupported token algorithm or type');
+  }
+
+  const expectedSig = createHmac('sha256', secret).update(`${h}.${p}`).digest();
+  let actualSig;
+  try {
+    actualSig = unb64(s);
+  } catch {
+    throw unauthenticated('invalid signature encoding');
+  }
+
+  if (actualSig.length !== expectedSig.length || !timingSafeEqual(actualSig, expectedSig)) {
+    throw unauthenticated('invalid signature');
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  if (typeof payload.exp !== 'number' || payload.exp <= now) {
+    throw unauthenticated('token expired or invalid exp');
+  }
+
+  if (payload.iss !== ISS) {
+    throw unauthenticated('invalid token issuer');
+  }
+
+  if (payload.aud !== AUD) {
+    throw unauthenticated('invalid token audience');
+  }
+
+  if (typeof payload.jti !== 'string' || payload.jti.length === 0) {
+    throw unauthenticated('invalid or missing token jti');
+  }
+
+  return payload;
 }
 
 
