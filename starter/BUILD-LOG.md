@@ -27,40 +27,89 @@ Implemented strict JWT verification using existing helpers: requiring 3 dot-sepa
 Ensured all malformed tokens, algorithm substitutions, signature mismatches, and expired tokens throw `unauthenticated(...)` returning 401 UNAUTHENTICATED.
 Ran `node scripts/check-jwt.js`: all 43 test cases passed cleanly (43 passed, 0 failed).
 
-## Phase 2 — caller context and the resolution engine
+## Phase 2 · caller context and the resolution engine
 
-_This is where most people's first model is wrong. Write down the model you started with, the
-observation that broke it, and the model you moved to. Be specific about the observation._
+Started with the assumption that the role name in the JWT could be treated as the authorization answer. The seeded data and personalisation fixture showed that this is insufficient: permissions can be changed through database grants and can be scoped to a device.
 
-## Phase 3 — orgs, members, invites
+The final model is:
+1. verify the access token;
+2. resolve the caller's membership in the requested organisation;
+3. load the permission catalogue and role baseline from the database;
+4. evaluate active, non-revoked grants for the caller and organisation;
+5. apply explicit denies before allows;
+6. return a resolved permission object with `effect`, `source`, and `reason`.
 
-_Anything you had to work out that no document states. Invite lifecycle states are a common
-source of this._
+The resolver also batches device permission resolution so the device list does not perform a permission query for every individual device.
 
-## Phase 4 — devices and grants
+Validation:
+- `node scripts/check-jwt.js` → 43 passed
+- `node scripts/check-permissions.js` → 35 passed
+- `npm run personalisation` → 18 passed
+- `node scripts/check-api.js` → 66 passed
 
-_What happens at the boundary where two grants disagree, or where a grant's scope and the
-question's scope differ? Say what you predicted and what you got._
+## Phase 3 · orgs, members, invites
 
-## Phase 5 — sessions
+Implemented organisation, membership, invitation, and effective-permission routes.
 
-_Two permissions, one device. What did you have to resolve, and in what order, to keep the two
-failure reasons distinguishable?_
+Organisation membership is part of the caller context rather than being inferred from a client-supplied organisation alone. Cross-organisation access is rejected at the server boundary.
 
-## Phase 6 — audit
+Invitations use an explicit lifecycle:
+- an administrator creates the invitation;
+- the token exposes only the information required to redeem it;
+- accepting the invitation creates the membership and user when appropriate;
+- invalid or unusable invitation tokens are rejected without exposing organisation details.
 
-_What did you decide counts as an auditable event, and what pushed you to that line?_
+The console changes its active organisation through the server-issued token rather than treating the browser's selected organisation as an authorization decision.
 
-## Phase 7 — the console
+## Phase 4 · devices and grants
 
-_Where did the server's answer and your instinct disagree about what should be on screen?_
+Device visibility is permission-controlled. A caller who cannot `device:view` a device does not receive a redacted device row; the resource is treated as invisible and returns 404 for direct access.
 
-## Phase 8 — hardening
+For conflicting grants, explicit deny wins over an allow. Grants are filtered by organisation, user, validity window, revocation state, and device scope before resolution.
 
-_What did you measure, what did you fix, and what did you deliberately leave alone? Anything you
-chose not to build belongs here with its reason._
+The frontend consumes the server-resolved permissions instead of rebuilding the role matrix in React. The database permission catalogue and role definitions remain the runtime authority.
+
+## Phase 5 · sessions
+
+Session creation requires two separate permissions:
+- `session:start`
+- the requested device mode permission (`device:view`, `device:control`, or `device:terminal`).
+
+These are checked in order so the API can distinguish a missing session-start permission from a missing device permission.
+
+Active session authority is snapshotted when a session starts. Session expiry is derived from the organisation's configured maximum session duration. Exclusive-control conflicts return a distinct `DEVICE_BUSY` response.
+
+## Phase 6 · audit
+
+Auditable events include authentication activity, permission-sensitive mutations, device lifecycle operations, membership/invitation changes, grants, and session lifecycle actions.
+
+Denied operations are also recorded with the relevant actor, organisation, request ID, action, and result so an authorization failure is attributable rather than silently disappearing.
+
+The audit API is separately permission-gated with `audit:read`.
+
+## Phase 7 · the console
+
+The initial console implementation used presentation-level role assumptions. The final implementation instead consumes the server's resolved permissions for the active organisation.
+
+The important UI rule is presence rather than disabled-state rendering: permission-controlled controls are either rendered with `data-permission` and `data-state="unlocked"` or are absent.
+
+The active organisation is visually identifiable through its organisation-specific theme. Switching organisations changes both the server context and the rendered shell, and the application does not persist the access token in web storage.
+
+The console was validated against all 25 provided Playwright UI tests.
+## Phase 8 · hardening
+
+Windows-specific setup issues were fixed in the database loader because the original file URL handling produced `C:\C:\...` paths. The Unix-specific database reset command was also handled during local setup.
+
+The production static-server path was corrected to use `fileURLToPath(...)` so Windows paths resolve correctly when serving `dist/index.html`.
+
+Refresh-session restoration was tested through a real browser reload. The frontend initially called `/auth/refresh` with GET while the API requires POST; this was corrected so the refresh cookie restores the access token after reload.
+
+Final validation:
+- `npm run build` → passed
+- `npx playwright test` → 25 passed, 0 failed
+
+The project intentionally does not implement real remote device access. Sessions represent control-plane records only, as required by the brief.
 
 ## Open threads
 
-_Things you know are wrong, unfinished, or that you would do differently with another day. Listing
-these honestly is worth more than pretending they do not exist — we will find them anyway._
+The implementation is complete against the provided automated suite. With additional time, I would add more focused automated coverage around invitation edge cases, concurrent session creation, and additional dynamic permission catalogue changes.
